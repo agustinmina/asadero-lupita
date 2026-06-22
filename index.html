@@ -7,7 +7,7 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
- <script src="https://unpkg.com/@babel/standalone@7.23.0/babel.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.23.0/babel.min.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
 </head>
@@ -330,8 +330,9 @@
           acc.pollos += v.pollosTotales || 0;
           acc.refrescosVendidos += (det.refresco || 0) + (det.paquete || 0);
           
-          // Lógica del dinero apartado para los refrescos
-          acc.apartadoRefrescos += (det.refresco || 0) * 30 + (det.paquete || 0) * 10;
+          // Lógica avanzada del dinero apartado (Refrescos y Tortillas separadas)
+          acc.apartadoRefrescos += (det.refresco || 0) * 30 + (det.paquete || 0) * 17;
+          acc.apartadoTortillas += (det.tortillaMedio || 0) * 13 + (det.tortillaKilo || 0) * 26 + (det.paquete || 0) * 13;
           
           if (v.tipo === 'domicilio') {
               acc.cantidadEnvios += 1;
@@ -341,7 +342,7 @@
           return acc;
         }, { 
           ventasTotales: 0, ingresoEfectivo: 0, ingresoTransferencia: 0, pollos: 0, 
-          refrescosVendidos: 0, apartadoRefrescos: 0, cantidadEnvios: 0, costoEnvioEfectivo: 0, costoEnvioTransferencia: 0,
+          refrescosVendidos: 0, apartadoRefrescos: 0, apartadoTortillas: 0, cantidadEnvios: 0, costoEnvioEfectivo: 0, costoEnvioTransferencia: 0,
           totalGastos: listaGastos.reduce((sum, g) => sum + (g.monto || 0), 0)
         });
       };
@@ -379,7 +380,7 @@
             <table>
               <thead>
                 <tr>
-                  <th colspan="9" style="background-color: #dc2626; color: #facc15; font-size: 24px; font-weight: bold; padding: 15px; text-align: center;">ASADERO LUPITA - REPORTE DE VENTAS</th>
+                  <th colspan="10" style="background-color: #dc2626; color: #facc15; font-size: 24px; font-weight: bold; padding: 15px; text-align: center;">ASADERO LUPITA - REPORTE DE VENTAS</th>
                 </tr>
                 <tr style="background-color: #1f2937; color: white; font-weight: bold;">
                   <th>Fecha</th>
@@ -388,8 +389,9 @@
                   <th>Efectivo Cobrado</th>
                   <th>Transferencias</th>
                   <th>Gastos Físicos</th>
-                  <th>Pago Tortillería</th>
+                  <th>Pago Repartidor</th>
                   <th>Apartado Refrescos</th>
+                  <th>Apartado Tortillas</th>
                   <th>Efectivo Neto Real (Caja)</th>
                 </tr>
               </thead>
@@ -398,12 +400,11 @@
 
         historialDias.forEach(dia => {
           const rDia = calcularResumen(dia.ventas, dia.gastos);
-          const tortillaDia = historialTortillas[dia.fecha.replace(/\//g, '-')] || { dejo: 0, regreso: 0 };
-          const pTortillaDia = ((tortillaDia.dejo || 0) - (tortillaDia.regreso || 0)) * 23;
           const pEnviosEfectivo = rDia.costoEnvioEfectivo || 0;
           const pRefrescosDia = rDia.apartadoRefrescos || 0;
+          const pTortillasDia = rDia.apartadoTortillas || 0;
           
-          const netoEfectivoCaja = rDia.ingresoEfectivo - rDia.totalGastos - pTortillaDia - pEnviosEfectivo - pRefrescosDia;
+          const netoEfectivoCaja = rDia.ingresoEfectivo - rDia.totalGastos - pEnviosEfectivo - pRefrescosDia - pTortillasDia;
 
           tablaHTML += `
             <tr>
@@ -413,8 +414,9 @@
               <td style="color: #16a34a; font-weight: bold;">$${rDia.ingresoEfectivo.toFixed(2)}</td>
               <td style="color: #9333ea; font-weight: bold;">$${rDia.ingresoTransferencia.toFixed(2)}</td>
               <td style="color: #dc2626;">-$${rDia.totalGastos.toFixed(2)}</td>
-              <td style="color: #eab308;">-$${pTortillaDia.toFixed(2)}</td>
+              <td style="color: #dc2626;">-$${pEnviosEfectivo.toFixed(2)}</td>
               <td style="color: #0891b2;">-$${pRefrescosDia.toFixed(2)}</td>
+              <td style="color: #f97316;">-$${pTortillasDia.toFixed(2)}</td>
               <td style="background-color: #fef9c3; font-weight: bold; color: #166534;">$${netoEfectivoCaja.toFixed(2)}</td>
             </tr>
           `;
@@ -439,9 +441,8 @@
       const kgVendidosTortilla = (tortillaProv.dejo || 0) - (tortillaProv.regreso || 0);
       const pTortillaProveedor = kgVendidosTortilla * 23;
       const pEnviosRepartidorEfectivo = resHoy.costoEnvioEfectivo || 0;
-      const apartadoRefrescosHoy = resHoy.apartadoRefrescos || 0;
       
-      const corteNetoFisicoHoy = resHoy.ingresoEfectivo - resHoy.totalGastos - pTortillaProveedor - pEnviosRepartidorEfectivo - apartadoRefrescosHoy;
+      const corteNetoFisicoHoy = resHoy.ingresoEfectivo - resHoy.totalGastos - pEnviosRepartidorEfectivo - resHoy.apartadoRefrescos - resHoy.apartadoTortillas;
 
       const menuTabs = [
         { id: 'local', icon: Iconos.Store, label: 'Local' },
@@ -627,34 +628,50 @@
             )}
 
             {vista === 'gastos' && (
-              <div className="max-w-lg mx-auto bg-white p-6 rounded-xl shadow-2xl border-t-4 border-red-600">
-                <h3 className="font-black text-gray-800 mb-4 flex items-center gap-2 text-lg"><Iconos.MinusCircle /> Registrar Gasto Físico</h3>
-                <p className="text-sm text-gray-500 mb-4 font-bold">Usa esta ventana SOLO para el dinero que sacas de la caja (Ej. Hielo, Bolsas, Limpieza).</p>
-                <form onSubmit={registrarGasto} className="flex flex-col gap-3 mb-6">
-                  <input type="text" placeholder="Ej. Hielo..." value={nuevoGasto.descripcion} onChange={(e) => setNuevoGasto({...nuevoGasto, descripcion: e.target.value})} className="w-full p-3 border-2 border-gray-200 rounded-lg font-bold text-sm outline-none focus:border-red-500" />
-                  <div className="flex gap-3">
-                    <span className="p-3 bg-gray-100 border-2 border-gray-200 rounded-lg text-gray-500 font-bold">$</span>
-                    <input type="number" placeholder="0.00" value={nuevoGasto.monto} onChange={(e) => setNuevoGasto({...nuevoGasto, monto: e.target.value})} className="flex-1 p-3 border-2 border-gray-200 rounded-lg font-bold text-center outline-none focus:border-red-500" />
-                    <button type="submit" className="bg-red-600 hover:bg-red-700 text-yellow-100 px-6 font-bold rounded-lg shadow-md"><Iconos.PlusCircle /></button>
-                  </div>
-                </form>
+              <div className="max-w-lg mx-auto space-y-6">
+                <div className="bg-white p-6 rounded-xl shadow-2xl border-t-4 border-red-600">
+                  <h3 className="font-black text-gray-800 mb-4 flex items-center gap-2 text-lg"><Iconos.MinusCircle /> Registrar Gasto Físico</h3>
+                  <p className="text-sm text-gray-500 mb-4 font-bold">Usa esta ventana SOLO para el dinero que sacas de la caja (Ej. Hielo, Bolsas, Limpieza).</p>
+                  <form onSubmit={registrarGasto} className="flex flex-col gap-3 mb-6">
+                    <input type="text" placeholder="Ej. Hielo..." value={nuevoGasto.descripcion} onChange={(e) => setNuevoGasto({...nuevoGasto, descripcion: e.target.value})} className="w-full p-3 border-2 border-gray-200 rounded-lg font-bold text-sm outline-none focus:border-red-500" />
+                    <div className="flex gap-3">
+                      <span className="p-3 bg-gray-100 border-2 border-gray-200 rounded-lg text-gray-500 font-bold">$</span>
+                      <input type="number" placeholder="0.00" value={nuevoGasto.monto} onChange={(e) => setNuevoGasto({...nuevoGasto, monto: e.target.value})} className="flex-1 p-3 border-2 border-gray-200 rounded-lg font-bold text-center outline-none focus:border-red-500" />
+                      <button type="submit" className="bg-red-600 hover:bg-red-700 text-yellow-100 px-6 font-bold rounded-lg shadow-md"><Iconos.PlusCircle /></button>
+                    </div>
+                  </form>
 
-                <h4 className="font-black text-sm text-gray-400 uppercase tracking-widest border-b-2 border-gray-100 pb-2 mb-3">Gastos de Hoy</h4>
-                <ul className="divide-y divide-gray-100 max-h-60 overflow-y-auto pr-2">
-                  {gastosHoy.length === 0 ? (
-                    <li className="text-sm text-gray-400 italic py-2 font-bold">No hay gastos registrados hoy.</li>
-                  ) : (
-                    gastosHoy.map(g => (
-                      <li key={g.dbId || g.id} className="py-3 flex justify-between items-center text-sm">
-                        <span className="text-gray-700 uppercase font-black">{g.descripcion}</span>
-                        <div className="flex items-center gap-3">
-                          <span className="text-red-600 font-black text-lg">-${(g.monto || 0).toFixed(2)}</span>
-                          {esPatron && <button onClick={() => eliminarRegistro(g.dbId, g.id, 'gasto')} className="text-red-400 hover:text-red-600 bg-red-50 p-1 rounded"><Iconos.Trash2 /></button>}
-                        </div>
-                      </li>
-                    ))
-                  )}
-                </ul>
+                  <h4 className="font-black text-sm text-gray-400 uppercase tracking-widest border-b-2 border-gray-100 pb-2 mb-3">Gastos de Hoy</h4>
+                  <ul className="divide-y divide-gray-100 max-h-60 overflow-y-auto pr-2">
+                    {gastosHoy.length === 0 ? (
+                      <li className="text-sm text-gray-400 italic py-2 font-bold">No hay gastos registrados hoy.</li>
+                    ) : (
+                      gastosHoy.map(g => (
+                        <li key={g.dbId || g.id} className="py-3 flex justify-between items-center text-sm">
+                          <span className="text-gray-700 uppercase font-black">{g.descripcion}</span>
+                          <div className="flex items-center gap-3">
+                            <span className="text-red-600 font-black text-lg">-${(g.monto || 0).toFixed(2)}</span>
+                            {esPatron && <button onClick={() => eliminarRegistro(g.dbId, g.id, 'gasto')} className="text-red-400 hover:text-red-600 bg-red-50 p-1 rounded"><Iconos.Trash2 /></button>}
+                          </div>
+                        </li>
+                      ))
+                    )}
+                  </ul>
+                </div>
+
+                <div className="bg-white p-6 rounded-xl shadow-2xl border-t-4 border-yellow-500">
+                  <h3 className="font-black text-gray-800 text-lg mb-4">Inventario Tortillería (Llenado por Empleado)</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-xs font-black text-gray-500 uppercase">KG Que Dejó:</label>
+                      <input type="number" value={tortillaProv.dejo} onChange={(e) => actualizarTortillaProv('dejo', e.target.value)} className="w-full p-3 border-2 rounded-lg text-center text-xl font-black" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-black text-gray-500 uppercase">KG Que Regresa:</label>
+                      <input type="number" value={tortillaProv.regreso} onChange={(e) => actualizarTortillaProv('regreso', e.target.value)} className="w-full p-3 border-2 rounded-lg text-center text-xl font-black" />
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -705,19 +722,13 @@
                   </div>
 
                   <div className="bg-white p-6 rounded-xl shadow-2xl border-t-4 border-yellow-400">
-                    <h3 className="font-black text-gray-800 text-xl mb-4">Inventario Tortilla (Proveedor a $23)</h3>
-                    <div className="grid grid-cols-2 gap-4 mb-4">
-                      <div>
-                        <label className="text-xs font-black text-gray-500 uppercase">KG Que Dejó:</label>
-                        <input type="number" value={tortillaProv.dejo} onChange={(e) => actualizarTortillaProv('dejo', e.target.value)} className="w-full p-3 border-2 rounded-lg text-center text-xl font-black" />
-                      </div>
-                      <div>
-                        <label className="text-xs font-black text-gray-500 uppercase">KG Que Regresa:</label>
-                        <input type="number" value={tortillaProv.regreso} onChange={(e) => actualizarTortillaProv('regreso', e.target.value)} className="w-full p-3 border-2 rounded-lg text-center text-xl font-black" />
-                      </div>
+                    <h3 className="font-black text-gray-800 text-xl mb-4">Resumen de Tortillas</h3>
+                    <div className="bg-gray-100 p-4 rounded-lg mb-4 flex justify-between">
+                        <span className="font-bold text-gray-600">Total KG Vendidos:</span>
+                        <span className="font-black text-lg">{kgVendidosTortilla} kg</span>
                     </div>
                     <div className="bg-yellow-100 p-4 rounded-lg flex justify-between items-center border border-yellow-300">
-                      <span className="font-black text-yellow-800 text-sm">Costo a Pagar ({kgVendidosTortilla} kg):</span>
+                      <span className="font-black text-yellow-800 text-sm">Pago a Proveedor a $23:</span>
                       <span className="font-black text-2xl text-yellow-700">${pTortillaProveedor.toFixed(2)}</span>
                     </div>
                   </div>
@@ -736,8 +747,10 @@
 
                     <div className="my-3 border-b-2 border-dashed border-gray-300"></div>
                     
-                    <div className="flex justify-between p-2 text-cyan-600"><span>Apartado para Refrescos:</span> <span>-${apartadoRefrescosHoy.toFixed(2)}</span></div>
-                    <div className="flex justify-between p-2 text-yellow-600"><span>Pago Tortilla Proveedor:</span> <span>-${pTortillaProveedor.toFixed(2)}</span></div>
+                    <div className="flex justify-between p-2 text-cyan-600"><span>Apartado para Refrescos:</span> <span>-${resHoy.apartadoRefrescos.toFixed(2)}</span></div>
+                    <div className="flex justify-between p-2 text-orange-500"><span>Apartado para Tortillas:</span> <span>-${resHoy.apartadoTortillas.toFixed(2)}</span></div>
+                    <p className="text-[10px] text-gray-500 italic mt-1 text-center">*(Del apartado de tortillas de ${resHoy.apartadoTortillas.toFixed(2)}, pagas $${pTortillaProveedor.toFixed(2)} al proveedor)*</p>
+                    
                     <div className="flex justify-between p-2 text-red-600"><span>Gastos Físicos de Caja:</span> <span>-${resHoy.totalGastos.toFixed(2)}</span></div>
                     <div className="flex justify-between p-2 text-blue-600"><span>Pago a Repartidores (En Efectivo):</span> <span>-${pEnviosRepartidorEfectivo.toFixed(2)}</span></div>
                   </div>
@@ -842,8 +855,9 @@
                       const pTortillaDia = kgTortillaDia * 23;
                       const pEnviosEfectivoDia = resDia.costoEnvioEfectivo || 0;
                       const pRefrescosDia = resDia.apartadoRefrescos || 0;
+                      const pTortillasDia = resDia.apartadoTortillas || 0;
 
-                      const efectivoNetoFisicoDia = resDia.ingresoEfectivo - resDia.totalGastos - pTortillaDia - pEnviosEfectivoDia - pRefrescosDia;
+                      const efectivoNetoFisicoDia = resDia.ingresoEfectivo - resDia.totalGastos - pEnviosEfectivoDia - pRefrescosDia - pTortillasDia;
 
                       return (
                         <div key={dia.fecha} className="p-4 sm:p-6 bg-white rounded-xl shadow-sm">
@@ -861,14 +875,18 @@
                               <span className="block text-[10px] text-blue-400 uppercase font-black tracking-widest">Pollos Vendidos</span>
                               <span className="block text-xl font-black text-blue-700">{resDia.pollos}</span>
                             </div>
-                            
                             <div className="bg-green-50 p-3 rounded-lg border border-green-200 text-center shadow-inner">
                               <span className="block text-[10px] text-green-600 uppercase font-black tracking-widest">Efectivo Cobrado</span>
                               <span className="block text-xl font-black text-green-700">${resDia.ingresoEfectivo.toFixed(2)}</span>
                             </div>
+
                             <div className="bg-cyan-50 p-3 rounded-lg border border-cyan-200 text-center shadow-inner">
                               <span className="block text-[10px] text-cyan-500 uppercase font-black tracking-widest">Apt. Refrescos</span>
                               <span className="block text-xl font-black text-cyan-700">-${pRefrescosDia.toFixed(2)}</span>
+                            </div>
+                            <div className="bg-orange-50 p-3 rounded-lg border border-orange-200 text-center shadow-inner">
+                              <span className="block text-[10px] text-orange-500 uppercase font-black tracking-widest">Apt. Tortillas</span>
+                              <span className="block text-xl font-black text-orange-700">-${pTortillasDia.toFixed(2)}</span>
                             </div>
                             <div className="bg-red-50 p-3 rounded-lg border border-red-200 text-center shadow-inner">
                               <span className="block text-[10px] text-red-400 uppercase font-black tracking-widest">Gastos Físicos</span>

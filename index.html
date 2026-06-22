@@ -47,6 +47,16 @@
     const EQUIVALENCIA_POLLOS = { entero: 1, mitad: 0.5, paquete: 1 };
     const PIN_PATRON = "527";
 
+    const getLocalYYYYMMDD = () => {
+      const d = new Date();
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    };
+
+    const formatForDB = (ymd) => {
+      const [y, m, d] = ymd.split('-');
+      return new Date(y, m - 1, d).toLocaleDateString('es-MX');
+    };
+
     const ProductoInput = ({ nombre, desc, name, value, onChange }) => (
       <div className="flex justify-between items-center bg-white border-2 border-red-100 p-2 rounded shadow-sm">
         <div>
@@ -65,10 +75,14 @@
       const [vista, setVista] = useState('local');
       const [esPatron, setEsPatron] = useState(false);
 
+      const [fechaTrabajoInput, setFechaTrabajoInput] = useState(getLocalYYYYMMDD());
+      const [hoyStr, setHoyStr] = useState(formatForDB(getLocalYYYYMMDD()));
+
       const [modalAlerta, setModalAlerta] = useState({ visible: false, mensaje: '' });
       const [modalConfirmacion, setModalConfirmacion] = useState({ visible: false, mensaje: '', action: null });
       const [modalPin, setModalPin] = useState(false);
       const [inputPin, setInputPin] = useState('');
+      const [diaExpandido, setDiaExpandido] = useState(null);
 
       const [orden, setOrden] = useState({ 
         entero: 0, mitad: 0, paquete: 0,
@@ -89,14 +103,20 @@
       const [tortillaProv, setTortillaProv] = useState({ dejo: 0, regreso: 0 });
       const [entradasHoy, setEntradasHoy] = useState({ pollos: 0, refrescos: 0 });
       
-      const hoyStr = new Date().toLocaleDateString('es-MX');
-
       const [ventas, setVentas] = useState([]);
       const [gastos, setGastos] = useState([]);
       const [historialTortillas, setHistorialTortillas] = useState({});
       
       const [stockPollos, setStockPollos] = useState(0);
       const [stockRefrescos, setStockRefrescos] = useState(0);
+
+      const handleCambiarFecha = (e) => {
+        const ymd = e.target.value;
+        if(ymd) {
+          setFechaTrabajoInput(ymd);
+          setHoyStr(formatForDB(ymd));
+        }
+      };
 
       useEffect(() => {
         const unsubVentas = db.collection('ventas').onSnapshot((snap) => {
@@ -121,22 +141,30 @@
           }
         });
 
-        const unsubTortilla = db.collection('inventario_tortilla').doc(hoyStr.replace(/\//g, '-')).onSnapshot((doc) => {
-          if (doc.exists) setTortillaProv(doc.data());
-        });
-
         const unsubHistorialTortillas = db.collection('inventario_tortilla').onSnapshot((snap) => {
           const hist = {};
           snap.forEach(doc => { hist[doc.id] = doc.data(); });
           setHistorialTortillas(hist);
         });
 
-        const unsubEntradas = db.collection('entradas_diarias').doc(hoyStr.replace(/\//g, '-')).onSnapshot((doc) => {
-          if (doc.exists) setEntradasHoy(doc.data());
+        return () => { unsubVentas(); unsubGastos(); unsubClientes(); unsubStock(); unsubHistorialTortillas(); };
+      }, []);
+
+      useEffect(() => {
+        const docId = hoyStr.replace(/\//g, '-');
+        
+        const unsubTortilla = db.collection('inventario_tortilla').doc(docId).onSnapshot((doc) => {
+          if (doc.exists) setTortillaProv(doc.data());
+          else setTortillaProv({ dejo: 0, regreso: 0 });
         });
 
-        return () => { unsubVentas(); unsubGastos(); unsubClientes(); unsubStock(); unsubTortilla(); unsubHistorialTortillas(); unsubEntradas(); };
-      }, []);
+        const unsubEntradas = db.collection('entradas_diarias').doc(docId).onSnapshot((doc) => {
+          if (doc.exists) setEntradasHoy(doc.data());
+          else setEntradasHoy({ pollos: 0, refrescos: 0 });
+        });
+
+        return () => { unsubTortilla(); unsubEntradas(); };
+      }, [hoyStr]);
 
       const ventasHoy = ventas.filter(v => v.fechaDia === hoyStr);
       const gastosHoy = gastos.filter(g => g.fechaDia === hoyStr);
@@ -149,7 +177,12 @@
         }
       };
 
-      const cerrarSesionPatron = () => { setEsPatron(false); setVista('local'); };
+      const cerrarSesionPatron = () => { 
+        setEsPatron(false); 
+        setVista('local'); 
+        setFechaTrabajoInput(getLocalYYYYMMDD());
+        setHoyStr(formatForDB(getLocalYYYYMMDD()));
+      };
 
       const handleOrdenChange = (e) => {
         const { name, value } = e.target;
@@ -291,6 +324,7 @@
           await db.collection('config').doc('stock').set({ pollos: stockPollos - pollosOrden, refrescos: stockRefrescos - refrescosOrden }, { merge: true });
           
           setOrden({ entero: 0, mitad: 0, paquete: 0, tortillaMedio: 0, tortillaKilo: 0, refresco: 0, domicilio: '', notasEnvio: '', metodoPago: 'efectivo', telefono: '', nombreCliente: '' });
+          setModalAlerta({ visible: true, mensaje: `¡Venta registrada con fecha: ${hoyStr}!` });
         } catch (error) {
            setModalAlerta({ visible: true, mensaje: "Error al guardar. Verifica tu conexión." });
         }
@@ -330,7 +364,6 @@
           acc.pollos += v.pollosTotales || 0;
           acc.refrescosVendidos += (det.refresco || 0) + (det.paquete || 0);
           
-          // Lógica avanzada del dinero apartado (Refrescos y Tortillas separadas)
           acc.apartadoRefrescos += (det.refresco || 0) * 30 + (det.paquete || 0) * 17;
           acc.apartadoTortillas += (det.tortillaMedio || 0) * 13 + (det.tortillaKilo || 0) * 26 + (det.paquete || 0) * 13;
           
@@ -492,15 +525,30 @@
           )}
 
           <header className="bg-gray-900 border-b-4 border-red-600 text-white shadow-xl sticky top-0 z-10">
-            <div className="max-w-6xl mx-auto p-4 flex items-center justify-between">
+            <div className="max-w-6xl mx-auto p-4 flex flex-col md:flex-row items-center justify-between gap-4">
               <div className="flex items-center gap-3">
                 <img src="./IMG_20251224_104218_598.jpg" alt="Logo Lupita" className="h-12 w-12 object-cover rounded-full border-2 border-yellow-400" onError={(e) => e.target.style.display = 'none'} />
                 <h1 className="text-xl sm:text-2xl font-black tracking-tight text-yellow-400">ASADERO LUPITA</h1>
               </div>
-              <button onClick={() => esPatron ? cerrarSesionPatron() : setModalPin(true)} className={`px-3 py-1.5 rounded font-bold text-sm ${esPatron ? 'bg-green-500 text-white' : 'bg-red-700 text-yellow-200 border border-red-500'}`}>
-                {esPatron ? 'Patrón' : 'Empleado'}
+              
+              {esPatron && (
+                <div className="flex items-center gap-2 bg-gray-800 p-1.5 rounded-lg border border-gray-700 shadow-inner">
+                   <span className="text-[10px] sm:text-xs font-bold text-gray-400 uppercase tracking-widest hidden sm:flex items-center gap-1"><Iconos.CalendarDays /> Fecha Activa:</span>
+                   <input type="date" value={fechaTrabajoInput} onChange={handleCambiarFecha} className="bg-gray-900 text-yellow-400 font-black p-1 sm:p-1.5 rounded outline-none border border-gray-600 cursor-pointer text-sm" />
+                </div>
+              )}
+
+              <button onClick={() => esPatron ? cerrarSesionPatron() : setModalPin(true)} className={`px-4 py-2 rounded font-bold text-sm w-full md:w-auto ${esPatron ? 'bg-green-500 text-white' : 'bg-red-700 text-yellow-200 border border-red-500'}`}>
+                {esPatron ? 'Cerrar Sesión Patrón' : 'Acceso Patrón'}
               </button>
             </div>
+            
+            {esPatron && fechaTrabajoInput !== getLocalYYYYMMDD() && (
+              <div className="bg-red-600 text-white text-center text-xs sm:text-sm font-black py-2 tracking-widest uppercase animate-pulse shadow-inner border-y-2 border-red-800">
+                ¡ATENCIÓN! Estás registrando o editando datos en una FECHA ANTERIOR ({hoyStr})
+              </div>
+            )}
+
             <div className="flex overflow-x-auto bg-gray-800 scrollbar-hide">
               {menuTabs.map(tab => (
                 <button key={tab.id} onClick={() => setVista(tab.id)} className={`flex-1 min-w-[90px] py-3 text-xs sm:text-sm font-bold text-center flex flex-col items-center gap-1 transition-colors ${vista === tab.id ? 'bg-red-600 text-yellow-100 border-b-4 border-yellow-400' : 'text-gray-400 hover:text-white hover:bg-gray-700'}`}>
@@ -582,13 +630,15 @@
                 
                 <section className="lg:col-span-6">
                   <div className="bg-white rounded-xl shadow-2xl border-t-4 border-gray-400 overflow-hidden mt-6 lg:mt-0">
-                    <div className="bg-gray-100 p-3 border-b flex items-center gap-2">
-                      <Iconos.ListOrdered />
-                      <h2 className="text-sm font-black text-gray-700">Registro de Hoy (En vivo)</h2>
+                    <div className="bg-gray-100 p-3 border-b flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Iconos.ListOrdered />
+                        <h2 className="text-sm font-black text-gray-700">Registro ({hoyStr})</h2>
+                      </div>
                     </div>
                     <div className="max-h-[500px] overflow-y-auto">
                       {ventasHoy.length === 0 ? (
-                        <p className="p-6 text-center text-gray-400 text-sm font-bold">Aún no se ha roto el hielo. Sin ventas registradas.</p>
+                        <p className="p-6 text-center text-gray-400 text-sm font-bold">Sin ventas registradas en esta fecha.</p>
                       ) : (
                         <ul className="divide-y divide-gray-100">
                           {ventasHoy.map((v) => {
@@ -630,7 +680,7 @@
             {vista === 'gastos' && (
               <div className="max-w-lg mx-auto space-y-6">
                 <div className="bg-white p-6 rounded-xl shadow-2xl border-t-4 border-red-600">
-                  <h3 className="font-black text-gray-800 mb-4 flex items-center gap-2 text-lg"><Iconos.MinusCircle /> Registrar Gasto Físico</h3>
+                  <h3 className="font-black text-gray-800 mb-4 flex items-center gap-2 text-lg"><Iconos.MinusCircle /> Registrar Gasto ({hoyStr})</h3>
                   <p className="text-sm text-gray-500 mb-4 font-bold">Usa esta ventana SOLO para el dinero que sacas de la caja (Ej. Hielo, Bolsas, Limpieza).</p>
                   <form onSubmit={registrarGasto} className="flex flex-col gap-3 mb-6">
                     <input type="text" placeholder="Ej. Hielo..." value={nuevoGasto.descripcion} onChange={(e) => setNuevoGasto({...nuevoGasto, descripcion: e.target.value})} className="w-full p-3 border-2 border-gray-200 rounded-lg font-bold text-sm outline-none focus:border-red-500" />
@@ -641,10 +691,10 @@
                     </div>
                   </form>
 
-                  <h4 className="font-black text-sm text-gray-400 uppercase tracking-widest border-b-2 border-gray-100 pb-2 mb-3">Gastos de Hoy</h4>
+                  <h4 className="font-black text-sm text-gray-400 uppercase tracking-widest border-b-2 border-gray-100 pb-2 mb-3">Gastos de esta fecha</h4>
                   <ul className="divide-y divide-gray-100 max-h-60 overflow-y-auto pr-2">
                     {gastosHoy.length === 0 ? (
-                      <li className="text-sm text-gray-400 italic py-2 font-bold">No hay gastos registrados hoy.</li>
+                      <li className="text-sm text-gray-400 italic py-2 font-bold">No hay gastos registrados.</li>
                     ) : (
                       gastosHoy.map(g => (
                         <li key={g.dbId || g.id} className="py-3 flex justify-between items-center text-sm">
@@ -660,7 +710,7 @@
                 </div>
 
                 <div className="bg-white p-6 rounded-xl shadow-2xl border-t-4 border-yellow-500">
-                  <h3 className="font-black text-gray-800 text-lg mb-4">Inventario Tortillería (Llenado por Empleado)</h3>
+                  <h3 className="font-black text-gray-800 text-lg mb-4">Inventario Tortillería ({hoyStr})</h3>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="text-xs font-black text-gray-500 uppercase">KG Que Dejó:</label>
@@ -722,7 +772,7 @@
                   </div>
 
                   <div className="bg-white p-6 rounded-xl shadow-2xl border-t-4 border-yellow-400">
-                    <h3 className="font-black text-gray-800 text-xl mb-4">Resumen de Tortillas</h3>
+                    <h3 className="font-black text-gray-800 text-xl mb-4">Resumen de Tortillas ({hoyStr})</h3>
                     <div className="bg-gray-100 p-4 rounded-lg mb-4 flex justify-between">
                         <span className="font-bold text-gray-600">Total KG Vendidos:</span>
                         <span className="font-black text-lg">{kgVendidosTortilla} kg</span>
@@ -735,7 +785,7 @@
                 </div>
 
                 <div className="bg-white p-6 rounded-xl shadow-2xl border-t-4 border-green-500 h-fit">
-                  <h3 className="font-black text-gray-800 text-xl mb-4">Corte de Caja de Hoy (Físico)</h3>
+                  <h3 className="font-black text-gray-800 text-xl mb-4">Corte de Caja ({hoyStr})</h3>
                   <div className="space-y-3 text-sm font-bold text-gray-600">
                     <div className="flex justify-between p-3 bg-gray-100 rounded-lg"><span>Ventas Totales (Bruto):</span> <span className="font-black text-gray-900">${resHoy.ventasTotales.toFixed(2)}</span></div>
                     <div className="flex justify-between p-3 bg-green-50 text-green-800 rounded-lg border border-green-200"><span>Cobrado en Efectivo:</span> <span className="font-black">${resHoy.ingresoEfectivo.toFixed(2)}</span></div>
@@ -902,6 +952,67 @@
                                <span className="block text-4xl font-black">${efectivoNetoFisicoDia.toFixed(2)}</span>
                             </div>
                           </div>
+
+                          <button
+                             onClick={() => setDiaExpandido(diaExpandido === dia.fecha ? null : dia.fecha)}
+                             className="mt-6 w-full bg-gray-100 hover:bg-gray-200 border-2 border-gray-300 text-gray-800 font-black py-3 rounded-lg flex items-center justify-center gap-2 transition-all"
+                          >
+                             {diaExpandido === dia.fecha ? 'Ocultar Detalles de este Día' : 'Ver Detalles y Corregir Errores'}
+                          </button>
+
+                          {diaExpandido === dia.fecha && (
+                             <div className="mt-4 pt-4 border-t-2 border-dashed border-gray-300 grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
+                                   <h5 className="font-black text-gray-700 mb-3 border-b pb-2 flex items-center gap-2"><Iconos.ListOrdered /> Ventas del Día</h5>
+                                   <ul className="max-h-[300px] overflow-y-auto pr-2">
+                                     {dia.ventas.length === 0 ? <p className="text-xs font-bold text-gray-400">Sin ventas registradas.</p> : dia.ventas.map(v => {
+                                       let det = v.detalles || {};
+                                       return (
+                                         <li key={v.dbId || v.id} className="py-3 border-b border-gray-200 flex justify-between items-start">
+                                           <div className="flex-1">
+                                             <div className="flex items-center gap-2 mb-1">
+                                               <span className="text-[10px] font-bold bg-gray-200 text-gray-700 px-2 py-0.5 rounded">{v.hora}</span>
+                                               <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded ${v.metodoPago === 'efectivo' ? 'bg-green-100 text-green-700' : 'bg-purple-100 text-purple-700'}`}>{v.metodoPago}</span>
+                                               {v.tipo === 'domicilio' && <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-blue-100 text-blue-700">Envío</span>}
+                                             </div>
+                                             {v.nombreCliente && (
+                                               <p className="text-xs font-black text-gray-800 uppercase mt-1">👤 {v.nombreCliente}</p>
+                                             )}
+                                             <p className="text-xs text-gray-700 font-bold mt-1 leading-relaxed">
+                                               {det.entero > 0 && <span className="mr-2 text-red-600">{det.entero} Ent</span>}
+                                               {det.mitad > 0 && <span className="mr-2 text-red-600">{det.mitad} Med</span>}
+                                               {det.paquete > 0 && <span className="mr-2 text-yellow-600">{det.paquete} Paq</span>}
+                                               {det.tortillaMedio > 0 && <span className="mr-2 text-gray-500">{det.tortillaMedio} Tort(½)</span>}
+                                               {det.tortillaKilo > 0 && <span className="mr-2 text-gray-500">{det.tortillaKilo} Tort(1k)</span>}
+                                               {det.refresco > 0 && <span className="mr-2 text-blue-600">{det.refresco} Ref</span>}
+                                             </p>
+                                           </div>
+                                           <div className="flex flex-col items-end gap-1 ml-2">
+                                             <span className="font-black text-sm text-gray-900">${(v.total || 0).toFixed(2)}</span>
+                                             <button onClick={() => eliminarRegistro(v.dbId, v.id, 'venta')} className="text-red-400 hover:text-red-600 p-1.5 bg-white border border-red-100 rounded-lg shadow-sm transition-colors hover:bg-red-50"><Iconos.Trash2 /></button>
+                                           </div>
+                                         </li>
+                                       )
+                                     })}
+                                   </ul>
+                                </div>
+
+                                <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
+                                   <h5 className="font-black text-gray-700 mb-3 border-b pb-2 flex items-center gap-2"><Iconos.MinusCircle /> Gastos del Día</h5>
+                                   <ul className="max-h-[300px] overflow-y-auto pr-2">
+                                     {dia.gastos.length === 0 ? <p className="text-xs font-bold text-gray-400">Sin gastos registrados.</p> : dia.gastos.map(g => (
+                                       <li key={g.dbId || g.id} className="py-3 border-b border-gray-200 flex justify-between items-center text-xs">
+                                         <span className="text-gray-700 uppercase font-black">{g.descripcion}</span>
+                                         <div className="flex items-center gap-3">
+                                           <span className="text-red-600 font-black text-sm">-${(g.monto || 0).toFixed(2)}</span>
+                                           <button onClick={() => eliminarRegistro(g.dbId, g.id, 'gasto')} className="text-red-400 hover:text-red-600 bg-white border border-red-100 p-1.5 rounded-lg shadow-sm transition-colors hover:bg-red-50"><Iconos.Trash2 /></button>
+                                         </div>
+                                       </li>
+                                     ))}
+                                   </ul>
+                                </div>
+                             </div>
+                          )}
                         </div>
                       );
                     })
